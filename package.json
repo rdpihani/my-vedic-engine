@@ -1,0 +1,12 @@
+{
+  "name": "vedic-engine",
+  "version": "1.0.0",
+  "description": "Vedic absolute engine for calculations",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@google-cloud/functions-framework": "^3.0.0"
+  }
+}
