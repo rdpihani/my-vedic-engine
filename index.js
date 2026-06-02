@@ -1,5 +1,3 @@
-const functions = require('@google-cloud/functions-framework');
-
 // =========================================================================
 // वैदिक गणना के कोर फंक्शन्स (Panchang & Lagna Core)
 // =========================================================================
@@ -97,17 +95,25 @@ function getVedicData(jdn, lat, lng) {
 }
 
 // =========================================================================
-// मुख्य कोर फ़ंक्शन जो रिक्वेस्ट हैंडल करेगा
+// शुद्ध एक्सप्रेस सर्वर सेटिंग्स (Pure Express Server)
 // =========================================================================
-const mainVedicEngine = (req, res) => {
+const express = require('express');
+const app = express();
+app.use(express.json());
+
+// CORS अनुमति ताकि आप इसे किसी भी ऐप या वेबसाइट से कॉल कर सकें
+app.use((req, res, next) => {
     res.set('Access-Control-Allow-Origin', '*');
+    res.set('Access-Control-Allow-Methods', 'GET, POST');
+    res.set('Access-Control-Allow-Headers', 'Content-Type');
     if (req.method === 'OPTIONS') {
-        res.set('Access-Control-Allow-Methods', 'GET, POST');
-        res.set('Access-Control-Allow-Headers', 'Content-Type');
-        res.set('Access-Control-Max-Age', '3600');
         return res.status(204).send('');
     }
+    next();
+});
 
+// मुख्य रास्ता (Root Route) - यह अब हर रिक्वेस्ट को संभालेगा
+app.all('/', (req, res) => {
     const data = (req.method === 'POST') ? req.body : req.query;
     
     let year = parseInt(data.year) || new Date().getFullYear();
@@ -115,7 +121,7 @@ const mainVedicEngine = (req, res) => {
     let day = parseInt(data.day) || new Date().getDate();
     let hour = parseFloat(data.hour) || new Date().getHours();
     let minute = parseFloat(data.minute) || new Date().getMinutes();
-    let lat = parseFloat(data.latitude) || 28.6139; // Default Delhi
+    let lat = parseFloat(data.latitude) || 28.6139; // डिफ़ॉल्ट दिल्ली
     let lng = parseFloat(data.longitude) || 77.2090;
 
     let jdn = getJulianDate(year, month, day, hour, minute);
@@ -140,25 +146,10 @@ const mainVedicEngine = (req, res) => {
             lagna: vedic.lagna
         }
     });
-};
-
-// Functions Framework के लिए रजिस्टर करें
-functions.http('vedicEngine', mainVedicEngine);
-
-// =========================================================================
-// रेंडर (RENDER) सर्वर के लिए विशेष लाइफ-लाइन (Local Server Listener)
-// =========================================================================
-const express = require('express');
-const app = express();
-app.use(express.json());
-
-// रेंडर की सभी रिक्वेस्ट को मेन इंजन पर डाइवर्ट करें
-app.all('*', (req, res) => {
-    mainVedicEngine(req, res);
 });
 
-// रेंडर द्वारा दिए गए पोर्ट पर सर्वर को हमेशा चालू रखें
+// रेंडर का पोर्ट बाइंडिंग
 const port = process.env.PORT || 8080;
 app.listen(port, () => {
-    console.log(`Vedic Engine Server is actively listening on port ${port}`);
+    console.log(`Pure Express Server is listening on port ${port}`);
 });
