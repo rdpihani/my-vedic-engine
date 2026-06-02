@@ -1,122 +1,164 @@
-// index.js (गूगल क्लाउड फंक्शंस के लिए सुरक्षित वैदिक इंजन)
 const functions = require('@google-cloud/functions-framework');
 
-const J2000_OFFSET = 2451545.0;
-const UJJAIN_LON = 75.7684;
-const OBLIQUITY = 23.4392911;
-const REFRACTION_OFFSET = 0.56666; 
-const SOLAR_TO_SIDEREAL_RATIO = 1.00273790935; 
+// =========================================================================
+// वैदिक गणना के कोर फंक्शन्स (Panchang & Lagna Core)
+// =========================================================================
 
-const DAILY_MOTION = { sun: 0.98564736, moon: 13.17639648, mars: 0.52403295, mercury: 4.09233443, jupiter: 0.08308530, venus: 1.60213022, saturn: 0.03344423, rahu: -0.05295386 };
-const EPOCH_LONGITUDE = { sun: 280.4665, moon: 218.3165, mars: 332.2215, mercury: 251.5234, jupiter: 34.3512, venus: 182.0124, saturn: 46.1234, rahu: 125.1234 };
-const MANDOCHA = { sun: 77.1233, moon: 130.0333, mars: 130.8422, mercury: 76.9211, jupiter: 171.1233, venus: 80.1244, saturn: 259.1244 };
-const MAX_MANDA = { sun: 1.9146, moon: 5.0583, mars: 10.6912, mercury: 5.3411, jupiter: 5.5422, venus: 0.4512, saturn: 6.6923 };
-const MAX_SHIGHRA = { mars: 41.21, mercury: 22.31, jupiter: 11.51, venus: 46.31, saturn: 6.21 };
+const EPOCH_LONGITUDE = { sun: 279.4033, moon: 270.4342 };
+const MAX_MANDA_CORRECTION = { sun: 1.915, moon: 5.077 };
 
-const RASHI_NAMES = ["मेष", "वृषभ", "मिथुन", "कर्क", "सिंह", "कन्या", "तुला", "वृश्चिक", "धनु", "मकर", "कुंभ", "मीन"];
-
-function cleanDeg(deg) { return (deg % 360.0 + 360.0) % 360.0; }
-function rad(deg) { return deg * Math.PI / 180.0; }
-function deg(rad) { return rad * 180.0 / Math.PI; }
-
-function calculateAharganaBase(d, m, y, h) {
-    if (m <= 2) { y -= 1; m += 12; }
-    let A = Math.floor(y / 100); let B = Math.floor(A / 4); let C = 2 - A + B;
-    let E = Math.floor(365.25 * (y + 4716)); let F = Math.floor(30.6001 * (m + 1));
-    return (C + d + E + F - 1524.5 + (h / 24.0)) - J2000_OFFSET;
+function cleanDeg(deg) {
+    let d = deg % 360;
+    if (d < 0) d += 360;
+    return d;
 }
 
-function getLahiriAyanamsha(ahargana) { return cleanDeg(23.850611 + ((ahargana / 365.256363) * (50.290966 / 3600.0))); }
-
-function calculateTrueVisualSunrise(ahargana, lat, lon) {
-    let meanSun = cleanDeg(EPOCH_LONGITUDE.sun + (ahargana * DAILY_MOTION.sun));
-    let trueSunLong = cleanDeg(meanSun - (MAX_MANDA.sun * Math.sin(rad(cleanDeg(meanSun - MANDOCHA.sun)))));
-    let sayanaSun = cleanDeg(trueSunLong + getLahiriAyanamsha(ahargana));
-    let sinKranti = Math.sin(rad(OBLIQUITY)) * Math.sin(rad(sayanaSun));
-    let krantiRad = Math.asin(sinKranti);
-    let cosH = (-rad(REFRACTION_OFFSET) - (Math.sin(rad(lat)) * Math.sin(krantiRad))) / (Math.cos(rad(lat)) * Math.cos(krantiRad));
-    let localHourAngleDeg = deg(Math.acos(Math.max(-1.0, Math.min(1.0, cosH))));
-    return { sunriseHour: 12.0 - (localHourAngleDeg / 15.0) - ((lon - UJJAIN_LON) / 15.0), dayLength: (localHourAngleDeg * 2.0) / 15.0, trueSun: trueSunLong, meanSun: meanSun };
+function getJulianDate(year, month, day, hour = 12, minute = 0) {
+    let y = year;
+    let m = month;
+    if (m <= 2) {
+        y -= 1;
+        m += 12;
+    }
+    let A = Math.floor(y / 100);
+    let B = Math.floor(A / 4);
+    let C = 2 - A + B;
+    let E = Math.floor(365.25 * (y + 4716));
+    let F = Math.floor(30.6001 * (m + 1));
+    let h = hour + minute / 60.0;
+    return C + day + E + F - 1524.5 + (h / 24.0);
 }
 
-function applyMandaSanskar(meanLong, planet) {
-    if (planet === "rahu" || planet === "ketu") return meanLong;
-    return cleanDeg(meanLong - (MAX_MANDA[planet] * Math.sin(rad(cleanDeg(meanLong - MANDOCHA[planet])))));
+function getLahiriAyanamsha(jdn) {
+    let t = (jdn - 2451545.0) / 36525.0;
+    return cleanDeg(23.85 + 0.01396 * t);
 }
 
-function applyShighraSanskar(mandaLong, planet, ahargana, meanSun) {
-    if (!MAX_SHIGHRA[planet]) return mandaLong;
-    let shighrocha = ["mercury", "venus"].includes(planet) ? meanSun : cleanDeg(EPOCH_LONGITUDE[planet] + (ahargana * DAILY_MOTION[planet]));
-    return cleanDeg(mandaLong + deg(Math.atan2(Math.sin(rad(cleanDeg(shighrocha - mandaLong))), Math.cos(rad(cleanDeg(shighrocha - mandaLong))) + (360.0 / (MAX_SHIGHRA[planet] * 2 * Math.PI)))));
+function calculateTrueVisualSunrise(jdn, lat, lng) {
+    let t = (jdn - 2451545.0) / 36525.0;
+    let meanSun = cleanDeg(EPOCH_LONGITUDE.sun + (36000.77 * t));
+    let trueSunLong = cleanDeg(meanSun - (MAX_MANDA_CORRECTION.sun * Math.sin(meanSun * Math.PI / 180.0)));
+    let ayanamsha = getLahiriAyanamsha(jdn);
+    let sayanaLong = cleanDeg(trueSunLong + ayanamsha);
+    
+    let radLat = lat * Math.PI / 180.0;
+    let obliquity = 23.439 * Math.PI / 180.0;
+    let declination = Math.asin(Math.sin(sayanaLong * Math.PI / 180.0) * Math.sin(obliquity));
+    
+    let sunriseAlt = -0.833 * Math.PI / 180.0;
+    let cosH = (Math.sin(sunriseAlt) - Math.sin(radLat) * Math.sin(declination)) / (Math.cos(radLat) * Math.cos(declination));
+    
+    if (cosH > 1 || cosH < -1) return 6.0; // Default if extreme lat
+    let H = Math.acos(cosH) * 180.0 / Math.PI;
+    let sunriseUTC = 12.0 - (H / 15.0) - (lng / 15.0);
+    let sunriseLocal = sunriseUTC + 5.5; // IST Offset
+    return sunriseLocal < 0 ? sunriseLocal + 24 : (sunriseLocal > 24 ? sunriseLocal - 24 : sunriseLocal);
 }
 
-function calculateVargaSlicing(longitude, divisions, vargaName) {
-    let baseSign = Math.floor(longitude / 30.0);
-    let part = Math.floor((longitude % 30.0) / (30.0 / divisions));
-    if (vargaName === "D1") return baseSign;
-    if (vargaName === "D2") return (baseSign % 2 === 0) ? (part === 0 ? 4 : 3) : (part === 0 ? 3 : 4);
-    if (vargaName === "D3") return (baseSign + (part * 4)) % 12;
-    if (vargaName === "D9") return ([0, 8, 4, 0, 8, 4, 0, 8, 4, 0, 8, 4][baseSign] + part) % 12;
-    return (baseSign * divisions + part) % 12;
+function getVedicData(jdn, lat, lng) {
+    let t = (jdn - 2451545.0) / 36525.0;
+    let ayanamsha = getLahiriAyanamsha(jdn);
+    
+    let meanSun = cleanDeg(EPOCH_LONGITUDE.sun + (36000.77 * t));
+    let trueSunLong = cleanDeg(meanSun - (MAX_MANDA_CORRECTION.sun * Math.sin(meanSun * Math.PI / 180.0)));
+    let nirayanaSun = cleanDeg(trueSunLong - ayanamsha);
+    
+    let meanMoon = cleanDeg(EPOCH_LONGITUDE.moon + (481267.89 * t));
+    let trueMoonLong = cleanDeg(meanMoon + (MAX_MANDA_CORRECTION.moon * Math.sin(meanMoon * Math.PI / 180.0)));
+    let nirayanaMoon = cleanDeg(trueMoonLong - ayanamsha);
+    
+    let tithiVal = cleanDeg(nirayanaMoon - nirayanaSun) / 12.0;
+    let tithiNo = Math.floor(tithiVal) + 1;
+    let nakshatraNo = Math.floor(nirayanaMoon / (13.3333)) + 1;
+    let yogaNo = Math.floor(cleanDeg(nirayanaSun + nirayanaMoon) / (13.3333)) + 1;
+    
+    const tithiNames = ["प्रथमा", "द्वितीया", "तृतीया", "चतुर्थी", "पंचमी", "षष्ठी", "सप्तमी", "अष्टमी", "नवमी", "दशमी", "एकादशी", "द्वादशी", "त्रयोदशी", "चतुर्दशी", "पूर्णिमा/अमावस्या"];
+    const nakshatraNames = ["अश्विनी", "भरणी", "कृत्तिका", "रोहिणी", "मृगशिरा", "आर्द्रा", "पुनर्वसु", "पुष्य", "आश्लेषा", "मघा", "पूर्वाफाल्गुनी", "उत्तराफाल्गुनी", "हस्त", "चित्रा", "स्वाती", "विशाखा", "अनुराधा", "ज्येष्ठा", "मूल", "पूर्वाषाढ़ा", "उत्तराषाढ़ा", "श्रवण", "धनिष्ठा", "शतभिषा", "पूर्वाभाद्रपद", "उत्तराभाद्रपद", "रेवती"];
+    const yogaNames = ["विष्कंभ", "प्रीति", "आयुष्मान", "सौभाग्य", "शोभन", "अतिगंड", "सुकर्मा", "धृति", "शूल", "गंड", "वृद्धि", "ध्रुव", "व्याघात", "हर्षण", "वज्र", "सिद्धि", "व्यतीपात", "वरीयान", "परिख", "शिव", "सिद्ध", "साध्य", "शुभ", "शुक्ल", "ब्रह्म", "ऐन्द्र", "वैधृति"];
+    const rashiNames = ["मेष", "वृषभ", "मिथुन", "कर्क", "सिंह", "कन्या", "तुला", "वृश्चिक", "धनु", "मकर", "कुंभ", "मीन"];
+    
+    let sunRashi = rashiNames[Math.floor(nirayanaSun / 30)];
+    let moonRashi = rashiNames[Math.floor(nirayanaMoon / 30)];
+    
+    let siderealTime = cleanDeg((280.46061837 + 360.98564736629 * (jdn - 2451545.0) + lng));
+    let mc = Math.atan2(Math.sin(siderealTime * Math.PI / 180.0), Math.cos(siderealTime * Math.PI / 180.0) * Math.cos(23.439 * Math.PI / 180.0)) * 180.0 / Math.PI;
+    let lagnaDeg = cleanDeg(mc - ayanamsha);
+    let lagnaNo = Math.floor(lagnaDeg / 30) + 1;
+    let lagnaName = rashiNames[lagnaNo - 1];
+
+    return {
+        tithi: tithiNames[(tithiNo - 1) % 15],
+        nakshatra: nakshatraNames[(nakshatraNo - 1) % 27],
+        yoga: yogaNames[(yogaNo - 1) % 27],
+        sunRashi: sunRashi,
+        moonRashi: moonRashi,
+        lagna: lagnaName
+    };
 }
 
-// गूगल क्लाउड का मुख्य गेटवे (यह इंटरनेट से आने वाले डेटा को रिसीव करेगा)
-functions.http('vedicEngine', (req, res) => {
-    // सुरक्षा के लिए CORS पॉलिसी सेट करना ताकि आपका ऐप इसे लोड कर सके
+// =========================================================================
+// मुख्य कोर फ़ंक्शन जो रिक्वेस्ट हैंडल करेगा
+// =========================================================================
+const mainVedicEngine = (req, res) => {
     res.set('Access-Control-Allow-Origin', '*');
-    if (req.method === 'OPTIONS') { res.set('Access-Control-Allow-Methods', 'GET, POST'); res.set('Access-Control-Allow-Headers', 'Content-Type'); res.status(204).send(''); return; }
-
-    // ऐप से भेजा गया डेटा पढ़ना
-    const { day, month, year, lat, lon, time_type, hours, minutes, seconds, ghati, pal, vipal } = req.body;
-
-    let finalSolarHours = 0;
-    if (time_type === 'modern') {
-        finalSolarHours = (parseFloat(hours) || 0) + ((parseFloat(minutes) || 0) / 60.0) + ((parseFloat(seconds) || 0) / 3600.0);
-    } else {
-        finalSolarHours = ((parseFloat(ghati) || 0) * 0.4) + ((parseFloat(pal) || 0) * 0.00666667) + ((parseFloat(vipal) || 0) * 0.00011111);
+    if (req.method === 'OPTIONS') {
+        res.set('Access-Control-Allow-Methods', 'GET, POST');
+        res.set('Access-Control-Allow-Headers', 'Content-Type');
+        res.set('Access-Control-Max-Age', '3600');
+        return res.status(204).send('');
     }
 
-    let baseAhargana = calculateAharganaBase(parseInt(day), parseInt(month), parseInt(year), 6.0); 
-    let sunMetrics = calculateTrueVisualSunrise(baseAhargana, parseFloat(lat), parseFloat(lon));
-    let absoluteAhargana = calculateAharganaBase(parseInt(day), parseInt(month), parseInt(year), sunMetrics.sunriseHour + finalSolarHours);
+    const data = (req.method === 'POST') ? req.body : req.query;
     
-    sunMetrics = calculateTrueVisualSunrise(absoluteAhargana, parseFloat(lat), parseFloat(lon));
-    let absoluteTimeHour = sunMetrics.sunriseHour + finalSolarHours;
-    absoluteAhargana = calculateAharganaBase(parseInt(day), parseInt(month), parseInt(year), absoluteTimeHour);
+    let year = parseInt(data.year) || new Date().getFullYear();
+    let month = parseInt(data.month) || (new Date().getMonth() + 1);
+    let day = parseInt(data.day) || new Date().getDate();
+    let hour = parseFloat(data.hour) || new Date().getHours();
+    let minute = parseFloat(data.minute) || new Date().getMinutes();
+    let lat = parseFloat(data.latitude) || 28.6139; // Default Delhi
+    let lng = parseFloat(data.longitude) || 77.2090;
 
-    let ayan = getLahiriAyanamsha(absoluteAhargana);
-    let lst = (absoluteAhargana * 0.06570982) + absoluteTimeHour + ((parseFloat(lon) - UJJAIN_LON) * 4.0 / 60.0) + 6.6460656;
-    let lstDeg = cleanDeg((lst % 24.0) * 15.0);
-    
-    let absoluteLagna = cleanDeg(deg(Math.atan2(-Math.cos(rad(lstDeg)), (Math.sin(rad(OBLIQUITY)) * Math.tan(rad(parseFloat(lat)))) + (Math.cos(rad(OBLIQUITY)) * Math.sin(rad(lstDeg))))) - ayan);
+    let jdn = getJulianDate(year, month, day, hour, minute);
+    let sunrise = calculateTrueVisualSunrise(jdn, lat, lng);
+    let vedic = getVedicData(jdn, lat, lng);
 
-    let truePositions = { sun: sunMetrics.trueSun, moon: applyMandaSanskar(cleanDeg(EPOCH_LONGITUDE.moon + (absoluteAhargana * DAILY_MOTION.moon)), "moon") };
-    ["mars", "mercury", "jupiter", "venus", "saturn"].forEach(p => {
-        truePositions[p] = applyShighraSanskar(applyMandaSanskar(cleanDeg(EPOCH_LONGITUDE[p] + (absoluteAhargana * DAILY_MOTION[p])), p), p, absoluteAhargana, sunMetrics.meanSun);
-    });
-    truePositions["rahu"] = cleanDeg(EPOCH_LONGITUDE.rahu + (absoluteAhargana * DAILY_MOTION.rahu));
-    truePositions["ketu"] = cleanDeg(truePositions["rahu"] + 180.0);
+    let hrs = Math.floor(sunrise);
+    let mins = Math.floor((sunrise - hrs) * 60);
+    let sunriseTimeString = `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')} IST`;
 
-    let dist = cleanDeg(truePositions.moon - truePositions.sun);
-    let panchang = { tithi: Math.ceil(dist / 12.0) || 30, nakshatra: Math.ceil(truePositions.moon / 13.333333) || 27, yoga: Math.ceil(cleanDeg(truePositions.sun + truePositions.moon) / 13.333333) || 27, kran: Math.ceil(dist / 6.0) || 60 };
-
-    let planetary_results = {};
-    for (let p in truePositions) {
-        let sIdx = Math.floor(truePositions[p] / 30);
-        planetary_results[p] = `${RASHI_NAMES[sIdx]} (${(truePositions[p] % 30).toFixed(2)}°)`;
-    }
-
-    let varga_results = {};
-    ["D1", "D2", "D3", "D4", "D7", "D9", "D10", "D12", "D16"].forEach(v => {
-        varga_results[v] = RASHI_NAMES[calculateVargaSlicing(absoluteLagna, parseInt(v.replace("D","")) || 1, v)];
-    });
-
-    // सिर्फ तैयार डेटा (नतीजे) वापस भेजना, कोडिंग पीछे छिप जाएगी
     res.status(200).json({
-        sunrise: sunMetrics.sunriseHour.toFixed(2),
-        lagna: RASHI_NAMES[Math.floor(absoluteLagna / 30)] + ` (${(absoluteLagna % 30).toFixed(2)}°)`,
-        panchang: panchang,
-        planets: planetary_results,
-        vargas: varga_results
+        status: "success",
+        datetime: `${day}-${month}-${year} ${Math.floor(hour)}:${Math.floor(minute)}`,
+        coordinates: { latitude: lat, longitude: lng },
+        calculations: {
+            sunrise: sunriseTimeString,
+            tithi: vedic.tithi,
+            nakshatra: vedic.nakshatra,
+            yoga: vedic.yoga,
+            sun_rashi: vedic.sunRashi,
+            moon_rashi: vedic.moonRashi,
+            lagna: vedic.lagna
+        }
     });
+};
+
+// Functions Framework के लिए रजिस्टर करें
+functions.http('vedicEngine', mainVedicEngine);
+
+// =========================================================================
+// रेंडर (RENDER) सर्वर के लिए विशेष लाइफ-लाइन (Local Server Listener)
+// =========================================================================
+const express = require('express');
+const app = express();
+app.use(express.json());
+
+// रेंडर की सभी रिक्वेस्ट को मेन इंजन पर डाइवर्ट करें
+app.all('*', (req, res) => {
+    mainVedicEngine(req, res);
+});
+
+// रेंडर द्वारा दिए गए पोर्ट पर सर्वर को हमेशा चालू रखें
+const port = process.env.PORT || 8080;
+app.listen(port, () => {
+    console.log(`Vedic Engine Server is actively listening on port ${port}`);
 });
