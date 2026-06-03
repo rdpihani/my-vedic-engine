@@ -1,5 +1,5 @@
 // =========================================================================
-// वैदिक गणना के कोर फंक्शन्स (Panchang & Lagna Core)
+// वैदिक गणना के कोर फंक्शन्स (Panchang & Lagna Core with Raw Degrees)
 // =========================================================================
 
 const EPOCH_LONGITUDE = { sun: 279.4033, moon: 270.4342 };
@@ -46,10 +46,10 @@ function calculateTrueVisualSunrise(jdn, lat, lng) {
     let sunriseAlt = -0.833 * Math.PI / 180.0;
     let cosH = (Math.sin(sunriseAlt) - Math.sin(radLat) * Math.sin(declination)) / (Math.cos(radLat) * Math.cos(declination));
     
-    if (cosH > 1 || cosH < -1) return 6.0; // Default if extreme lat
+    if (cosH > 1 || cosH < -1) return 6.0; 
     let H = Math.acos(cosH) * 180.0 / Math.PI;
     let sunriseUTC = 12.0 - (H / 15.0) - (lng / 15.0);
-    let sunriseLocal = sunriseUTC + 5.5; // IST Offset
+    let sunriseLocal = sunriseUTC + 5.5; 
     return sunriseLocal < 0 ? sunriseLocal + 24 : (sunriseLocal > 24 ? sunriseLocal - 24 : sunriseLocal);
 }
 
@@ -65,8 +65,8 @@ function getVedicData(jdn, lat, lng) {
     let trueMoonLong = cleanDeg(meanMoon + (MAX_MANDA_CORRECTION.moon * Math.sin(meanMoon * Math.PI / 180.0)));
     let nirayanaMoon = cleanDeg(trueMoonLong - ayanamsha);
     
-    let tithiVal = cleanDeg(nirayanaMoon - nirayanaSun) / 12.0;
-    let tithiNo = Math.floor(tithiVal) + 1;
+    let tithiVal = cleanDeg(nirayanaMoon - nirayanaSun);
+    let tithiNo = Math.floor(tithiVal / 12.0) + 1;
     let nakshatraNo = Math.floor(nirayanaMoon / (13.3333)) + 1;
     let yogaNo = Math.floor(cleanDeg(nirayanaSun + nirayanaMoon) / (13.3333)) + 1;
     
@@ -86,22 +86,27 @@ function getVedicData(jdn, lat, lng) {
 
     return {
         tithi: tithiNames[(tithiNo - 1) % 15],
+        tithi_deg: tithiVal,
         nakshatra: nakshatraNames[(nakshatraNo - 1) % 27],
+        nakshatra_deg: nirayanaMoon,
         yoga: yogaNames[(yogaNo - 1) % 27],
-        sunRashi: sunRashi,
-        moonRashi: moonRashi,
-        lagna: lagnaName
+        yoga_deg: cleanDeg(nirayanaSun + nirayanaMoon),
+        sun_rashi: sunRashi,
+        sun_deg: nirayanaSun,
+        moon_rashi: moonRashi,
+        moon_deg: nirayanaMoon,
+        lagna: lagnaName,
+        lagna_deg: lagnaDeg
     };
 }
 
 // =========================================================================
-// शुद्ध एक्सप्रेस सर्वर सेटिंग्स (Pure Express Server)
+// एक्सप्रेस सर्वर सेटिंग्स
 // =========================================================================
 const express = require('express');
 const app = express();
 app.use(express.json());
 
-// CORS अनुमति ताकि आप इसे किसी भी ऐप या वेबसाइट से कॉल कर सकें
 app.use((req, res, next) => {
     res.set('Access-Control-Allow-Origin', '*');
     res.set('Access-Control-Allow-Methods', 'GET, POST');
@@ -112,7 +117,6 @@ app.use((req, res, next) => {
     next();
 });
 
-// मुख्य रास्ता (Root Route) - यह अब हर रिक्वेस्ट को संभालेगा
 app.all('/', (req, res) => {
     const data = (req.method === 'POST') ? req.body : req.query;
     
@@ -121,8 +125,8 @@ app.all('/', (req, res) => {
     let day = parseInt(data.day) || new Date().getDate();
     let hour = parseFloat(data.hour) || new Date().getHours();
     let minute = parseFloat(data.minute) || new Date().getMinutes();
-    let lat = parseFloat(data.latitude) || 28.6139; // डिफ़ॉल्ट दिल्ली
-    let lng = parseFloat(data.longitude) || 77.2090;
+    let lat = parseFloat(data.latitude) || 27.6300; 
+    let lng = parseFloat(data.longitude) || 80.2000;
 
     let jdn = getJulianDate(year, month, day, hour, minute);
     let sunrise = calculateTrueVisualSunrise(jdn, lat, lng);
@@ -138,18 +142,18 @@ app.all('/', (req, res) => {
         coordinates: { latitude: lat, longitude: lng },
         calculations: {
             sunrise: sunriseTimeString,
-            tithi: vedic.tithi,
-            nakshatra: vedic.nakshatra,
-            yoga: vedic.yoga,
-            sun_rashi: vedic.sunRashi,
-            moon_rashi: vedic.moonRashi,
-            lagna: vedic.lagna
+            // नाम और उसकी सटीक निरयण डिग्री दोनों भेज रहे हैं
+            tithi: { name: vedic.tithi, deg: vedic.tithi_deg },
+            nakshatra: { name: vedic.nakshatra, deg: vedic.nakshatra_deg },
+            yoga: { name: vedic.yoga, deg: vedic.yoga_deg },
+            sun_rashi: { name: vedic.sun_rashi, deg: vedic.sun_deg },
+            moon_rashi: { name: vedic.moon_rashi, deg: vedic.moon_deg },
+            lagna: { name: vedic.lagna, deg: vedic.lagna_deg }
         }
     });
 });
 
-// रेंडर का पोर्ट बाइंडिंग
 const port = process.env.PORT || 8080;
 app.listen(port, () => {
-    console.log(`Pure Express Server is listening on port ${port}`);
+    console.log(`Vedic Engine with analytical degrees running on port ${port}`);
 });
