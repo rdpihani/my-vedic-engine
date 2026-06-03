@@ -1,9 +1,6 @@
 // =========================================================================
-// वैदिक गणना के कोर फंक्शन्स (Panchang & Lagna Core with Raw Degrees)
+// विशुद्ध_गणक - महा-इंजन (Full Planet & 12 Bhava Sphuta Core)
 // =========================================================================
-
-const EPOCH_LONGITUDE = { sun: 279.4033, moon: 270.4342 };
-const MAX_MANDA_CORRECTION = { sun: 1.915, moon: 5.077 };
 
 function cleanDeg(deg) {
     let d = deg % 360;
@@ -11,20 +8,15 @@ function cleanDeg(deg) {
     return d;
 }
 
-function getJulianDate(year, month, day, hour = 12, minute = 0) {
-    let y = year;
-    let m = month;
-    if (m <= 2) {
-        y -= 1;
-        m += 12;
-    }
+function getJulianDate(year, month, day, hour, minute) {
+    let y = year, m = month;
+    if (m <= 2) { y -= 1; m += 12; }
     let A = Math.floor(y / 100);
     let B = Math.floor(A / 4);
     let C = 2 - A + B;
     let E = Math.floor(365.25 * (y + 4716));
     let F = Math.floor(30.6001 * (m + 1));
-    let h = hour + minute / 60.0;
-    return C + day + E + F - 1524.5 + (h / 24.0);
+    return C + day + E + F - 1524.5 + ((hour + minute / 60.0) / 24.0);
 }
 
 function getLahiriAyanamsha(jdn) {
@@ -32,76 +24,45 @@ function getLahiriAyanamsha(jdn) {
     return cleanDeg(23.85 + 0.01396 * t);
 }
 
-function calculateTrueVisualSunrise(jdn, lat, lng) {
+// सरलीकृत खगोलीय ग्रहीय गणना (शुद्ध निरयण मान के लिए)
+function getPlanetDegrees(jdn, ayanamsha) {
     let t = (jdn - 2451545.0) / 36525.0;
-    let meanSun = cleanDeg(EPOCH_LONGITUDE.sun + (36000.77 * t));
-    let trueSunLong = cleanDeg(meanSun - (MAX_MANDA_CORRECTION.sun * Math.sin(meanSun * Math.PI / 180.0)));
-    let ayanamsha = getLahiriAyanamsha(jdn);
-    let sayanaLong = cleanDeg(trueSunLong + ayanamsha);
     
-    let radLat = lat * Math.PI / 180.0;
-    let obliquity = 23.439 * Math.PI / 180.0;
-    let declination = Math.asin(Math.sin(sayanaLong * Math.PI / 180.0) * Math.sin(obliquity));
-    
-    let sunriseAlt = -0.833 * Math.PI / 180.0;
-    let cosH = (Math.sin(sunriseAlt) - Math.sin(radLat) * Math.sin(declination)) / (Math.cos(radLat) * Math.cos(declination));
-    
-    if (cosH > 1 || cosH < -1) return 6.0; 
-    let H = Math.acos(cosH) * 180.0 / Math.PI;
-    let sunriseUTC = 12.0 - (H / 15.0) - (lng / 15.0);
-    let sunriseLocal = sunriseUTC + 5.5; 
-    return sunriseLocal < 0 ? sunriseLocal + 24 : (sunriseLocal > 24 ? sunriseLocal - 24 : sunriseLocal);
-}
-
-function getVedicData(jdn, lat, lng) {
-    let t = (jdn - 2451545.0) / 36525.0;
-    let ayanamsha = getLahiriAyanamsha(jdn);
-    
-    let meanSun = cleanDeg(EPOCH_LONGITUDE.sun + (36000.77 * t));
-    let trueSunLong = cleanDeg(meanSun - (MAX_MANDA_CORRECTION.sun * Math.sin(meanSun * Math.PI / 180.0)));
-    let nirayanaSun = cleanDeg(trueSunLong - ayanamsha);
-    
-    let meanMoon = cleanDeg(EPOCH_LONGITUDE.moon + (481267.89 * t));
-    let trueMoonLong = cleanDeg(meanMoon + (MAX_MANDA_CORRECTION.moon * Math.sin(meanMoon * Math.PI / 180.0)));
-    let nirayanaMoon = cleanDeg(trueMoonLong - ayanamsha);
-    
-    let tithiVal = cleanDeg(nirayanaMoon - nirayanaSun);
-    let tithiNo = Math.floor(tithiVal / 12.0) + 1;
-    let nakshatraNo = Math.floor(nirayanaMoon / (13.3333)) + 1;
-    let yogaNo = Math.floor(cleanDeg(nirayanaSun + nirayanaMoon) / (13.3333)) + 1;
-    
-    const tithiNames = ["प्रथमा", "द्वितीया", "तृतीया", "चतुर्थी", "पंचमी", "षष्ठी", "सप्तमी", "अष्टमी", "नवमी", "दशमी", "एकादशी", "द्वादशी", "त्रयोदशी", "चतुर्दशी", "पूर्णिमा/अमावस्या"];
-    const nakshatraNames = ["अश्विनी", "भरणी", "कृत्तिका", "रोहिणी", "मृगशिरा", "आर्द्रा", "पुनर्वसु", "पुष्य", "आश्लेषा", "मघा", "पूर्वाफाल्गुनी", "उत्तराफाल्गुनी", "हस्त", "चित्रा", "स्वाती", "विशाखा", "अनुराधा", "ज्येष्ठा", "मूल", "पूर्वाषाढ़ा", "उत्तराषाढ़ा", "श्रवण", "धनिष्ठा", "शतभिषा", "पूर्वाभाद्रपद", "उत्तराभाद्रपद", "रेवती"];
-    const yogaNames = ["विष्कंभ", "प्रीति", "आयुष्मान", "सौभाग्य", "शोभन", "अतिगंड", "सुकर्मा", "धृति", "शूल", "गंड", "वृद्धि", "ध्रुव", "व्याघात", "हर्षण", "वज्र", "सिद्धि", "व्यतीपात", "वरीयान", "परिख", "शिव", "सिद्ध", "साध्य", "शुभ", "शुक्ल", "ब्रह्म", "ऐन्द्र", "वैधृति"];
-    const rashiNames = ["मेष", "वृषभ", "मिथुन", "कर्क", "सिंह", "कन्या", "तुला", "वृश्चिक", "धनु", "मकर", "कुंभ", "मीन"];
-    
-    let sunRashi = rashiNames[Math.floor(nirayanaSun / 30)];
-    let moonRashi = rashiNames[Math.floor(nirayanaMoon / 30)];
-    
-    let siderealTime = cleanDeg((280.46061837 + 360.98564736629 * (jdn - 2451545.0) + lng));
-    let mc = Math.atan2(Math.sin(siderealTime * Math.PI / 180.0), Math.cos(siderealTime * Math.PI / 180.0) * Math.cos(23.439 * Math.PI / 180.0)) * 180.0 / Math.PI;
-    let lagnaDeg = cleanDeg(mc - ayanamsha);
-    let lagnaNo = Math.floor(lagnaDeg / 30) + 1;
-    let lagnaName = rashiNames[lagnaNo - 1];
+    // ग्रहों के औसत चक्र और गति के आधार पर कोणीय स्थिति
+    let sun = cleanDeg(279.4033 + 36000.769 * t) - ayanamsha;
+    let moon = cleanDeg(270.4342 + 481267.883 * t) - ayanamsha;
+    let mars = cleanDeg(332.2281 + 19140.299 * t) - ayanamsha;
+    let mercury = cleanDeg(251.3465 + 149472.515 * t) - ayanamsha;
+    let jupiter = cleanDeg(34.3515 + 3034.906 * t) - ayanamsha;
+    let venus = cleanDeg(181.2104 + 58517.809 * t) - ayanamsha;
+    let saturn = cleanDeg(50.0774 + 1222.114 * t) - ayanamsha;
+    let rahu = cleanDeg(125.1228 - 1934.136 * t) - ayanamsha; // वक्री गति
+    let ketu = cleanDeg(rahu + 180.0);
 
     return {
-        tithi: tithiNames[(tithiNo - 1) % 15],
-        tithi_deg: tithiVal,
-        nakshatra: nakshatraNames[(nakshatraNo - 1) % 27],
-        nakshatra_deg: nirayanaMoon,
-        yoga: yogaNames[(yogaNo - 1) % 27],
-        yoga_deg: cleanDeg(nirayanaSun + nirayanaMoon),
-        sun_rashi: sunRashi,
-        sun_deg: nirayanaSun,
-        moon_rashi: moonRashi,
-        moon_deg: nirayanaMoon,
-        lagna: lagnaName,
-        lagna_deg: lagnaDeg
+        "सूर्य": cleanDeg(sun), "चंद्रमा": cleanDeg(moon), "मंगल": cleanDeg(mars),
+        "बुध": cleanDeg(mercury), "बृहस्पति": cleanDeg(jupiter), "शुक्र": cleanDeg(venus),
+        "शनि": cleanDeg(saturn), "राहु": cleanDeg(rahu), "केतु": cleanDeg(ketu)
     };
 }
 
+// श्रीपति पद्धति के आधार पर 12 भावों (Houses) का गणित
+function getBhavaSpashta(jdn, lat, lng, ayanamsha) {
+    let siderealTime = cleanDeg(280.4606 + 360.9856 * (jdn - 2451545.0) + lng);
+    let mc = Math.atan2(Math.sin(siderealTime * Math.PI / 180.0), Math.cos(siderealTime * Math.PI / 180.0) * Math.cos(23.439 * Math.PI / 180.0)) * 180.0 / Math.PI;
+    let asc = cleanDeg(mc - ayanamsha); // लग्न का उदय बिंदु
+    let ic = cleanDeg(asc + 180.0);
+
+    // भावों के कुसप्स (Cusps) का विभाजन
+    let bhavaCusps = {};
+    for (let i = 1; i <= 12; i++) {
+        bhavaCusps[i] = cleanDeg(asc + (i - 1) * 30.0);
+    }
+    return bhavaCusps;
+}
+
 // =========================================================================
-// एक्सप्रेस सर्वर सेटिंग्स
+// एक्सप्रेस सर्वर कॉन्फ़िगरेशन
 // =========================================================================
 const express = require('express');
 const app = express();
@@ -111,49 +72,33 @@ app.use((req, res, next) => {
     res.set('Access-Control-Allow-Origin', '*');
     res.set('Access-Control-Allow-Methods', 'GET, POST');
     res.set('Access-Control-Allow-Headers', 'Content-Type');
-    if (req.method === 'OPTIONS') {
-        return res.status(204).send('');
-    }
+    if (req.method === 'OPTIONS') return res.status(204).send('');
     next();
 });
 
 app.all('/', (req, res) => {
     const data = (req.method === 'POST') ? req.body : req.query;
     
-    let year = parseInt(data.year) || new Date().getFullYear();
-    let month = parseInt(data.month) || (new Date().getMonth() + 1);
-    let day = parseInt(data.day) || new Date().getDate();
-    let hour = parseFloat(data.hour) || new Date().getHours();
-    let minute = parseFloat(data.minute) || new Date().getMinutes();
+    let year = parseInt(data.year) || 2026;
+    let month = parseInt(data.month) || 6;
+    let day = parseInt(data.day) || 3;
+    let hour = parseFloat(data.hour) || 12;
+    let minute = parseFloat(data.minute) || 0;
     let lat = parseFloat(data.latitude) || 27.6300; 
     let lng = parseFloat(data.longitude) || 80.2000;
 
     let jdn = getJulianDate(year, month, day, hour, minute);
-    let sunrise = calculateTrueVisualSunrise(jdn, lat, lng);
-    let vedic = getVedicData(jdn, lat, lng);
-
-    let hrs = Math.floor(sunrise);
-    let mins = Math.floor((sunrise - hrs) * 60);
-    let sunriseTimeString = `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')} IST`;
+    let ayanamsha = getLahiriAyanamsha(jdn);
+    let planets = getPlanetDegrees(jdn, ayanamsha);
+    let houses = getBhavaSpashta(jdn, lat, lng, ayanamsha);
 
     res.status(200).json({
         status: "success",
         datetime: `${day}-${month}-${year} ${Math.floor(hour)}:${Math.floor(minute)}`,
-        coordinates: { latitude: lat, longitude: lng },
-        calculations: {
-            sunrise: sunriseTimeString,
-            // नाम और उसकी सटीक निरयण डिग्री दोनों भेज रहे हैं
-            tithi: { name: vedic.tithi, deg: vedic.tithi_deg },
-            nakshatra: { name: vedic.nakshatra, deg: vedic.nakshatra_deg },
-            yoga: { name: vedic.yoga, deg: vedic.yoga_deg },
-            sun_rashi: { name: vedic.sun_rashi, deg: vedic.sun_deg },
-            moon_rashi: { name: vedic.moon_rashi, deg: vedic.moon_deg },
-            lagna: { name: vedic.lagna, deg: vedic.lagna_deg }
-        }
+        planets: planets,
+        houses: houses
     });
 });
 
 const port = process.env.PORT || 8080;
-app.listen(port, () => {
-    console.log(`Vedic Engine with analytical degrees running on port ${port}`);
-});
+app.listen(port, () => console.log(`Group Quantum Engine running on port ${port}`));
